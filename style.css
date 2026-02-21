@@ -2229,46 +2229,211 @@ select option {
   margin-top: 15px;
 }
 
-/* =================== RESPONSIVE =================== */
-@media (max-width: 900px) {
+/* =================== RESPONSIVE DESIGN =================== */
+
+@media (max-width: 1024px) {
   .home-grid {
     grid-template-columns: 1fr;
+    gap: 15px;
   }
 
   .player-card {
     grid-row: auto;
   }
-
-  .stats-row {
-    grid-template-columns: repeat(3, 1fr);
-  }
 }
 
-@media (max-width: 600px) {
+@media (max-width: 768px) {
   .top-nav {
-    padding: 10px 14px;
+    top: 57px;
+    padding: 10px 15px;
+    gap: 12px;
+    justify-content: space-between;
   }
 
-  .tab-content {
-    padding: 14px 16px;
+  .nav-tabs {
+    flex: 1 1 100%;
+    order: 3;
+    overflow-x: auto;
+    padding-bottom: 5px;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .nav-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .nav-brand {
+    font-size: 1.3rem;
+  }
+
+  .nav-date {
+    font-size: 0.7rem;
   }
 
   .stats-row {
     grid-template-columns: repeat(2, 1fr);
   }
 
-  .schedule-form {
+  .card {
+    padding: 18px;
+    margin-bottom: 15px;
+  }
+
+  .tab-content {
+    padding: 15px;
+  }
+
+  .welcome-box {
+    padding: 25px 20px;
+    max-width: 95%;
+  }
+
+  .welcome-logo {
+    font-size: 2.5rem;
+    margin-bottom: 10px;
+  }
+
+  .welcome-header h2 {
+    font-size: 1.8rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .theme-switcher {
+    padding: 10px 15px;
+  }
+
+  .theme-btn {
+    padding: 6px 15px;
+    font-size: 0.8rem;
+    flex: 1;
+    text-align: center;
+  }
+
+  .nav-brand {
+    font-size: 1.1rem;
+  }
+
+  .stats-row {
     grid-template-columns: 1fr;
   }
 
-  .tab-btn {
-    padding: 6px 11px;
-    font-size: 0.76rem;
+  .stat-val {
+    font-size: 1.6rem;
   }
 
-  .couple-names-row {
+  .add-habit-form {
     flex-direction: column;
-    gap: 14px;
-    text-align: center;
+    align-items: stretch;
+    gap: 10px;
   }
+
+  input[type="text"],
+  input[type="password"],
+  select,
+  .btn-primary,
+  .btn-couple-primary,
+  .btn-couple-secondary,
+  .btn-submit-partner {
+    width: 100%;
+    font-size: 0.95rem;
+  }
+
+  .identity-selector {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .identity-btn {
+    padding: 15px;
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: 15px;
+  }
+
+  .btn-start-journey {
+    padding: 14px;
+    font-size: 0.95rem;
+  }
+
+  /* Fix for overlay potential scrolling */
+  .welcome-overlay {
+    padding: 10px;
+  }
+
+  .welcome-box {
+    overflow-y: auto;
+    max-height: 95vh;
+  }
+}
+
+/* Animations Restored & Optimized */
+@keyframes modalScaleUp {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes pulseGlow {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 15px rgba(236, 72, 153, 0.2);
+  }
+
+  50% {
+    transform: scale(1.02);
+    box-shadow: 0 0 30px rgba(236, 72, 153, 0.4);
+  }
+
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 15px rgba(236, 72, 153, 0.2);
+  }
+}
+
+@keyframes level-up {
+  0% {
+    transform: scale(1);
+  }
+
+  50% {
+    transform: scale(1.2);
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes wicket {
+  0% {
+    transform: rotate(0);
+  }
+
+  25% {
+    transform: rotate(10deg);
+  }
+
+  50% {
+    transform: rotate(-10deg);
+  }
+
+  100% {
+    transform: rotate(0);
+  }
+}
+
+.level-up-anim {
+  animation: level-up 0.6s ease;
+}
+
+.wicket-anim {
+  animation: wicket 0.5s ease;
 }
