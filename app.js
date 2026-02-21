@@ -1,8 +1,18 @@
-/* =============================================
-   HABIT TRACKER — app.js (Cricket + Couple)
-   Re-open fix: rollback stored on todayLog itself.
-   ============================================= */
 'use strict';
+
+// =================== CLOUD SYNC SETTINGS ===================
+// REPLACE THESE with your actual Supabase URL and Anon Key from Project Settings
+const SB_URL = 'https://cxcxwgzhlkbsdrfbjewi.supabase.co';
+const SB_KEY = 'sb_publishable_rSYp_9jmxft8SzpJnsLA_w_S_4Z5E0Q';
+
+let sb = null;
+try {
+  if (SB_URL.indexOf('YOUR_SUPABASE') === -1) {
+    sb = supabase.createClient(SB_URL, SB_KEY);
+  }
+} catch (e) {
+  console.warn('Supabase not initialized:', e.message);
+}
 
 // =================== CRICKET CONSTANTS ===================
 const LEVEL_CONFIG = [
@@ -68,6 +78,8 @@ function defaultCoupleState() {
     habits1: [], habits2: [],
     todayLog1: null, todayLog2: null,
     history: [],
+    nudges: [], // Pending nudges from partner
+    unlockedBadges1: [], unlockedBadges2: [],
   };
 }
 
@@ -83,7 +95,124 @@ function loadCoupleState() {
   return defaultCoupleState();
 }
 function saveCS() { localStorage.setItem('cht_cricket_v3', JSON.stringify(cState)); }
-function saveCPS() { localStorage.setItem('cht_couple_v3', JSON.stringify(cpState)); }
+function saveCPS() {
+  localStorage.setItem('cht_couple_v3', JSON.stringify(cpState));
+  if (sb) syncWithCloud();
+}
+
+// =================== CLOUD SYNC LOGIC ===================
+let isSyncing = false;
+let coupleSyncKey = localStorage.getItem('cht_couple_sync_key') || '';
+
+async function syncWithCloud() {
+  if (!sb || !coupleSyncKey || isSyncing) return;
+  isSyncing = true;
+  updateSyncUI('syncing');
+
+  try {
+    const { data, error } = await sb
+      .from('couple_sync')
+      .upsert({
+        id: coupleSyncKey,
+        p1_state: { habits: cpState.habits1, todayLog: cpState.todayLog1, name: cpState.name1, badges: cpState.unlockedBadges1 },
+        p2_state: { habits: cpState.habits2, todayLog: cpState.todayLog2, name: cpState.name2, badges: cpState.unlockedBadges2 },
+        shared_history: cpState.history,
+        last_updated: new Date().toISOString()
+      });
+
+    if (error) throw error;
+    updateSyncUI('synced');
+  } catch (e) {
+    console.error('Sync failed:', e.message);
+    updateSyncUI('error');
+  } finally {
+    isSyncing = false;
+  }
+}
+
+async function fetchFromCloud(key) {
+  if (!sb || !key) return;
+  coupleSyncKey = key;
+  localStorage.setItem('cht_couple_sync_key', key);
+  updateSyncUI('syncing');
+
+  try {
+    const { data, error } = await sb
+      .from('couple_sync')
+      .select('*')
+      .eq('id', key)
+      .single();
+
+    if (error && error.code !== 'PGRST116') throw error; // PGRST116 is not found
+
+    if (data) {
+      // Merge Cloud -> Local
+      if (data.p1_state) {
+        cpState.habits1 = data.p1_state.habits || [];
+        cpState.todayLog1 = data.p1_state.todayLog;
+        cpState.name1 = data.p1_state.name || cpState.name1;
+        cpState.unlockedBadges1 = data.p1_state.badges || [];
+      }
+      if (data.p2_state) {
+        cpState.habits2 = data.p2_state.habits || [];
+        cpState.todayLog2 = data.p2_state.todayLog;
+        cpState.name2 = data.p2_state.name || cpState.name2;
+        cpState.unlockedBadges2 = data.p2_state.badges || [];
+      }
+      cpState.history = data.shared_history || [];
+
+      saveCPS(); // Update local storage
+      renderCouple();
+      showCommentary('📊 Cloud data synced successfully!', 'love');
+    } else {
+      // New key, push local to cloud for the first time
+      await syncWithCloud();
+      showCommentary('🚀 New cloud link created!', 'love');
+    }
+    updateSyncUI('synced');
+    setupRealtimeSync(key);
+  } catch (e) {
+    console.error('Fetch failed:', e.message);
+    updateSyncUI('error');
+  }
+}
+
+function setupRealtimeSync(key) {
+  if (!sb || !key) return;
+  sb
+    .channel('couple_updates')
+    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'couple_sync', filter: `id=eq.${key}` },
+      (payload) => {
+        // Only pull if we didn't just push it
+        fetchFromCloud(key);
+      })
+    .subscribe();
+}
+
+function updateSyncUI(status) {
+  const s1 = document.getElementById('p1-sync-status');
+  const s2 = document.getElementById('p2-sync-status');
+  const i1 = document.getElementById('p1-sync-key');
+  const i2 = document.getElementById('p2-sync-key');
+
+  const msgs = {
+    syncing: '🔄 Syncing with Cloud...',
+    synced: '✅ Cloud Active (Connected)',
+    error: '❌ Sync Error! Check Key.',
+    local: '📡 Local Mode (Private)'
+  };
+
+  [s1, s2].forEach(s => {
+    if (!s) return;
+    s.textContent = msgs[status] || msgs.local;
+    s.classList.toggle('active', status === 'synced');
+  });
+
+  if (status === 'synced') {
+    if (i1) i1.value = coupleSyncKey;
+    if (i2) i2.value = coupleSyncKey;
+  }
+}
 
 // =================== DATE UTILS ===================
 function todayStr() {
@@ -215,6 +344,11 @@ function switchTab(app, tab) {
   const prefix = app + '-tab-';
   document.querySelectorAll(`#${app}-app .tab-content`).forEach(c => c.classList.toggle('active', c.id === prefix + tab));
   document.querySelectorAll(`#${app}-app .tab-btn`).forEach(b => b.classList.toggle('active', b.dataset.tab === tab && b.dataset.app === app));
+
+  if (app === 'couple') {
+    if (tab === 'partner1') checkNudges(1);
+    if (tab === 'partner2') checkNudges(2);
+  }
 }
 
 // =================== CRICKET RENDER ===================
@@ -612,8 +746,113 @@ function renderCouple() {
   renderCoupleUnlocks();
   renderPartnerHabits(1);
   renderPartnerHabits(2);
+  renderMilestoneBadges(1);
+  renderMilestoneBadges(2);
+  updateGrowthChart();
   renderCoupleHistory();
   setText('couple-current-date', formatDate(todayStr()));
+
+  // Check for nudges for the currently active tab if in couple mode
+  const currentTab = document.querySelector('[data-app="couple"].tab-btn.active')?.dataset.tab;
+  if (currentTab === 'partner1') checkNudges(1);
+  if (currentTab === 'partner2') checkNudges(2);
+}
+
+function renderMilestoneBadges(which) {
+  const shelf = document.getElementById(`p${which}-milestones`);
+  if (!shelf) return;
+  const habits = which === 1 ? cpState.habits1 : cpState.habits2;
+  const history = cpState.history || [];
+  const badges = [];
+
+  // Logic for badges
+  const maxStreak = habits.length > 0 ? Math.max(0, ...habits.map(h => h.streak || 0)) : 0;
+  if (maxStreak >= 3) badges.push({ icon: '🔥', label: 'Starter' });
+  if (maxStreak >= 7) badges.push({ icon: '⚡', label: 'Consistent' });
+  if (maxStreak >= 14) badges.push({ icon: '🏆', label: 'Master' });
+
+  const perfectDays = history.filter(e => (which === 1 ? e.p1pct : e.p2pct) === 100).length;
+  if (perfectDays >= 1) badges.push({ icon: '⭐', label: 'First Perfect' });
+  if (perfectDays >= 7) badges.push({ icon: '🌟', label: 'Perfect Week' });
+
+  const notesCount = history.filter(e => (which === 1 ? e.note1 : e.note2)).length;
+  if (notesCount >= 5) badges.push({ icon: '✍️', label: 'Journalist' });
+
+  shelf.innerHTML = badges.map(b => `
+    <div class="milestone-badge unlocked" title="${b.label}">
+      <span class="badge-icon">${b.icon}</span>
+      <span class="badge-label">${b.label}</span>
+    </div>
+  `).join('');
+}
+
+let growthChartInstance = null;
+function updateGrowthChart() {
+  const ctx = document.getElementById('growthChart')?.getContext('2d');
+  if (!ctx) return;
+
+  const last30 = (cpState.history || []).slice(-30);
+  const labels = last30.map(e => formatDate(e.date).split(',')[0]); // Weekday
+  const data = last30.map(e => e.closeness);
+
+  if (growthChartInstance) growthChartInstance.destroy();
+
+  growthChartInstance = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: labels.length ? labels : ['No Data'],
+      datasets: [{
+        label: 'Closeness %',
+        data: data.length ? data : [0],
+        borderColor: '#ec4899',
+        backgroundColor: 'rgba(236, 72, 153, 0.1)',
+        borderWidth: 3,
+        tension: 0.4,
+        fill: true,
+        pointBackgroundColor: '#ec4899',
+        pointRadius: 4
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        y: { min: 0, max: 100, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#9ca3af' } },
+        x: { grid: { display: false }, ticks: { color: '#9ca3af' } }
+      }
+    }
+  });
+}
+
+window.sendNudge = function () {
+  const userId = localStorage.getItem('couple_identity');
+  if (!userId) { showCommentary('⚠️ Set your identity first!', 'neutral'); return; }
+
+  const fromWhich = parseInt(userId);
+  const toWhich = fromWhich === 1 ? 2 : 1;
+  const fromName = cpState['name' + fromWhich];
+
+  cpState.nudges = cpState.nudges || [];
+  cpState.nudges.push({
+    from: fromWhich,
+    to: toWhich,
+    msg: `💖 ${fromName} sent you a love nudge!`,
+    timestamp: Date.now()
+  });
+
+  saveCPS();
+  showCommentary('💌 Nudge sent to partner!', 'love');
+};
+
+function checkNudges(forWhich) {
+  if (!cpState.nudges) return;
+  const mine = cpState.nudges.filter(n => n.to === forWhich);
+  if (mine.length > 0) {
+    mine.forEach(n => showCommentary(n.msg, 'love'));
+    // Clear nudges after showing
+    cpState.nudges = cpState.nudges.filter(n => n.to !== forWhich);
+    saveCPS();
+  }
 }
 
 function calcCloseness() {
@@ -757,33 +996,88 @@ function renderPartnerHabits(which) {
     if (countEl) countEl.textContent = noteEl.value.length;
   }
 
+  // Habits list lock logic: lock if (first time submission AND journal is empty)
+  const habitsContainer = document.getElementById(`p${which}-habits-container`);
+  const isReedit = log && log.everSubmitted;
+  const hasNote = log && log.note && log.note.trim().length > 0;
+  if (habitsContainer) {
+    if (!submitted && !isReedit && !hasNote) {
+      habitsContainer.classList.add('locked');
+    } else {
+      habitsContainer.classList.remove('locked');
+    }
+  }
+
+  // Submit button: disabled when submitted; separate re-open button appears
   const btn = document.getElementById(btnId);
+  const reopenBtn = document.getElementById(`btn-reopen-p${which}`);
   if (submitted) {
-    btn.textContent = `✏️ Re-open Partner ${which}'s Day`;
-    btn.style.background = 'linear-gradient(135deg,#6366f1,#818cf8)';
-    btn.onclick = () => reopenPartnerDay(which);
+    btn.textContent = `✅ Day Submitted`;
+    btn.disabled = true;
+    btn.style.opacity = '0.5';
+    btn.style.cursor = 'not-allowed';
+    btn.onclick = null;
+    if (reopenBtn) { reopenBtn.classList.remove('hidden'); reopenBtn.onclick = () => reopenPartnerDay(which); }
   } else {
-    btn.textContent = `Submit Partner ${which} Day ${which === 1 ? '💙' : '❤️'}`;
-    btn.style.background = '';
+    btn.textContent = `Submit ${which === 1 ? '💙' : '❤️'} Day`;
+    btn.disabled = false;
+    btn.style.opacity = '';
+    btn.style.cursor = '';
     btn.onclick = () => submitPartnerDay(which);
+    if (reopenBtn) reopenBtn.classList.add('hidden');
   }
 }
 
 function renderCoupleHistory() {
   const list = document.getElementById('couple-history-list');
   const h = [...cpState.history].reverse().slice(0, 30);
-  list.innerHTML = h.length ? h.map(e => {
+  if (!h.length) { list.innerHTML = '<p class="empty-msg">No entries yet. Start your journey together!</p>'; return; }
+
+  const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  function fullDate(dateStr) {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const dt = new Date(y, m - 1, d);
+    return `${DAYS[dt.getDay()]}, ${d} ${MONTHS[m - 1]} ${y}`;
+  }
+
+  list.innerHTML = h.map(e => {
     const cls = e.closeness >= 70 ? 'good' : e.closeness >= 40 ? 'avg' : 'bad';
-    const arrow = e.closeness >= 50 ? '💗 Getting Closer' : '💔 Drifted Apart';
-    const note1 = e.note1 ? `<div class="memory-note-block"><div class="memory-note-who p1">💙 ${esc(e.name1 || 'Partner 1')}</div>${esc(e.note1)}</div>` : '';
-    const note2 = e.note2 ? `<div class="memory-note-block"><div class="memory-note-who p2">❤️ ${esc(e.name2 || 'Partner 2')}</div>${esc(e.note2)}</div>` : '';
-    const notes = (note1 || note2) ? `<div class="memory-entry-detail">${note1}${note2}</div>` : '';
-    return `<div class="history-item" style="flex-wrap:wrap;align-items:flex-start">
-      <div class="history-date">${formatDate(e.date)}</div>
-      <div class="history-body" style="flex:1;min-width:160px"><div class="history-title">${arrow}</div>
-      <div class="history-detail">Streak: ${e.coupleStreak} · P1: ${e.p1pct}% · P2: ${e.p2pct}%</div>${notes}</div>
-      <div class="history-runs ${cls}">${e.closeness}%</div></div>`;
-  }).join('') : '<p class="empty-msg">No entries yet. Start your journey together!</p>';
+    const mood = e.closeness >= 70 ? '💗' : e.closeness >= 40 ? '💛' : '💔';
+    const n1 = esc(e.name1 || 'Partner 1');
+    const n2 = esc(e.name2 || 'Partner 2');
+    const photo1 = e.photo1 ? `<div class="memory-photo-wrap"><img src="${esc(e.photo1)}" class="memory-photo" alt="Memory P1" onerror="this.parentElement.style.display='none'"></div>` : '';
+    const photo2 = e.photo2 ? `<div class="memory-photo-wrap"><img src="${esc(e.photo2)}" class="memory-photo" alt="Memory P2" onerror="this.parentElement.style.display='none'"></div>` : '';
+
+    const note1 = e.note1 ? `
+      <div class="memory-note-block p1-note-block">
+        <div class="memory-note-who p1">💙 ${n1} wrote</div>
+        <div class="memory-note-text">“${esc(e.note1)}”</div>
+        ${photo1}
+      </div>` : '';
+    const note2 = e.note2 ? `
+      <div class="memory-note-block p2-note-block">
+        <div class="memory-note-who p2">❤️ ${n2} wrote</div>
+        <div class="memory-note-text">“${esc(e.note2)}”</div>
+        ${photo2}
+      </div>` : '';
+    return `
+    <div class="memory-entry">
+      <div class="memory-entry-header">
+        <div class="memory-entry-date">
+          <span class="memory-weekday">${fullDate(e.date).split(',')[0]}</span>
+          <span class="memory-date-full">${fullDate(e.date).split(', ')[1]}</span>
+        </div>
+        <div class="memory-entry-closeness ${cls}">${mood} ${e.closeness}% Together</div>
+      </div>
+      <div class="memory-entry-stats">
+        <span>🔥 Streak: ${e.coupleStreak}d</span>
+        <span>💙 ${n1}: ${e.p1pct}%</span>
+        <span>❤️ ${n2}: ${e.p2pct}%</span>
+      </div>
+      ${note1}${note2}
+    </div>`;
+  }).join('');
 }
 
 // =================== COUPLE ACTIONS ===================
@@ -830,6 +1124,10 @@ function submitPartnerDay(which) {
   }
   log.note = noteVal;
 
+  // Photo URL capture
+  const photoUrl = (document.getElementById(`p${which}-photo-url`)?.value || '').trim();
+  log.photoUrl = photoUrl;
+
   const done = Object.values(res).filter(v => v === 'done').length;
   // Mark unmarked as missed
   Object.keys(res).forEach(id => { if (res[id] === null) res[id] = 'missed'; });
@@ -842,6 +1140,7 @@ function submitPartnerDay(which) {
   // Update streaks
   habits.forEach(h => { h.streak = res[h.id] === 'done' ? (h.streak || 0) + 1 : 0; });
   log.submitted = true;
+  log.everSubmitted = true; // Mark that they've successfully submitted today once
 
   // Check if both submitted today → finalize couple day
   const other = which === 1 ? cpState.todayLog2 : cpState.todayLog1;
@@ -875,13 +1174,25 @@ function finalizeCoupleDay() {
   cpState.closeness = closeness;
   cpState.totalDays = (cpState.totalDays || 0) + 1;
 
-  cpState.history.push({
-    date: todayStr(), closeness, coupleStreak: cpState.coupleStreak, p1pct, p2pct,
+  const today = todayStr();
+  const existingIdx = cpState.history.findIndex(e => e.date === today);
+  const entry = {
+    date: today, closeness, coupleStreak: cpState.coupleStreak, p1pct, p2pct,
     note1: cpState.todayLog1 ? (cpState.todayLog1.note || '') : '',
     note2: cpState.todayLog2 ? (cpState.todayLog2.note || '') : '',
+    photo1: cpState.todayLog1 ? (cpState.todayLog1.photoUrl || '') : '',
+    photo2: cpState.todayLog2 ? (cpState.todayLog2.photoUrl || '') : '',
     name1: cpState.name1 || 'Partner 1',
     name2: cpState.name2 || 'Partner 2',
-  });
+  };
+
+  if (existingIdx >= 0) {
+    cpState.history[existingIdx] = entry;
+    // When updating, we don't double-count totalDays
+    cpState.totalDays = Math.max(1, cpState.totalDays - 1);
+  } else {
+    cpState.history.push(entry);
+  }
   saveCPS();
   renderCouple();
 
@@ -1025,7 +1336,16 @@ document.addEventListener('DOMContentLoaded', () => {
       ct.textContent = ta.value.length;
       // Auto-save note to todayLog so it's preserved even if not submitted
       const log = which === 1 ? cpState.todayLog1 : cpState.todayLog2;
-      if (log && !log.submitted) { log.note = ta.value; saveCPS(); }
+      if (log && !log.submitted) {
+        log.note = ta.value;
+        saveCPS();
+        // Live toggle habits lock
+        const habitsContainer = document.getElementById(`p${which}-habits-container`);
+        if (habitsContainer && !log.everSubmitted) {
+          if (ta.value.trim().length > 0) habitsContainer.classList.remove('locked');
+          else habitsContainer.classList.add('locked');
+        }
+      }
     });
   }
   wireNoteCounter(1); wireNoteCounter(2);
@@ -1033,6 +1353,9 @@ document.addEventListener('DOMContentLoaded', () => {
   // Submit partner days (initial; onclick set by renderPartnerHabits)
   document.getElementById('btn-submit-p1').addEventListener('click', function () { this.onclick ? this.onclick() : submitPartnerDay(1); });
   document.getElementById('btn-submit-p2').addEventListener('click', function () { this.onclick ? this.onclick() : submitPartnerDay(2); });
+
+  // Couple: Nudge
+  document.getElementById('btn-send-nudge')?.addEventListener('click', () => sendNudge());
 
   // Modal
   document.getElementById('modal-confirm').addEventListener('click', () => { if (_mc) _mc(); hideModal(); });
@@ -1042,7 +1365,81 @@ document.addEventListener('DOMContentLoaded', () => {
   // Initial render
   renderCricket();
 
-  // Welcome
+  // Welcome / Identity Setup
+  function checkIdentity() {
+    const savedId = localStorage.getItem('couple_identity');
+    if (!savedId) {
+      document.getElementById('welcome-overlay').classList.remove('hidden');
+      setupWelcomeLogic();
+    } else {
+      // Auto-switch to the correct partner tab if in couple mode
+      if (activeTheme === 'couple') {
+        switchTab('couple', savedId == 1 ? 'partner1' : 'partner2');
+      }
+    }
+  }
+
+  function setupWelcomeLogic() {
+    const nameIn = document.getElementById('welcome-name-input');
+    const startBtn = document.getElementById('btn-start-journey');
+    const b1 = document.getElementById('id-btn-1');
+    const b2 = document.getElementById('id-btn-2');
+    let selectedId = null;
+
+    function validate() {
+      startBtn.disabled = !nameIn.value.trim() || !selectedId;
+    }
+
+    nameIn.addEventListener('input', validate);
+
+    b1.addEventListener('click', () => {
+      selectedId = 1;
+      b1.classList.add('selected');
+      b2.classList.remove('selected');
+      validate();
+    });
+
+    b2.addEventListener('click', () => {
+      selectedId = 2;
+      b2.classList.add('selected');
+      b1.classList.remove('selected');
+      validate();
+    });
+
+    startBtn.addEventListener('click', () => {
+      const name = nameIn.value.trim().slice(0, 20);
+      if (selectedId === 1) cpState.name1 = name; else cpState.name2 = name;
+      localStorage.setItem('couple_identity', selectedId);
+      saveCPS();
+      document.getElementById('welcome-overlay').classList.add('hidden');
+
+      // Personalized welcome
+      showCommentary(`✨ Welcome to the journey, ${name}!`, 'love');
+
+      // Auto-refresh UI
+      renderCouple();
+      switchTheme('couple');
+      switchTab('couple', selectedId == 1 ? 'partner1' : 'partner2');
+    });
+  }
+
+  // Couple: sync
+  const linkSync = (which) => {
+    const input = document.getElementById(`p${which}-sync-key`);
+    const key = input?.value.trim() || '';
+    if (!key) { showCommentary('⚠️ Please enter a Couple Key!', 'neutral'); return; }
+    fetchFromCloud(key);
+  };
+  document.getElementById('btn-sync-p1')?.addEventListener('click', () => linkSync(1));
+  document.getElementById('btn-sync-p2')?.addEventListener('click', () => linkSync(2));
+
+  checkIdentity();
+
+  if (coupleSyncKey) {
+    fetchFromCloud(coupleSyncKey);
+  }
+
+  // Welcome message for Cricket (only if no history)
   if (!cState.history.length && !cState.habits.length) {
     setTimeout(() => showCommentary('🏏 Welcome! Add habits to start your innings!', 'neutral'), 800);
   }

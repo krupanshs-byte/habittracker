@@ -9,9 +9,47 @@
   <link
     href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;900&family=Bebas+Neue&family=Dancing+Script:wght@700&display=swap"
     rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 
 <body>
+  <!-- Welcome Screen (First Time Setup) -->
+  <div id="welcome-overlay" class="welcome-overlay hidden">
+    <div class="welcome-box">
+      <div class="welcome-header">
+        <div class="welcome-logo">🏏💑</div>
+        <h2>Welcome to Couple Goals</h2>
+        <p>Your shared journey of growth and habits starts here.</p>
+      </div>
+
+      <div class="welcome-form">
+        <div class="welcome-input-group">
+          <label>Your Name</label>
+          <input type="text" id="welcome-name-input" placeholder="How should your partner see you?" maxlength="20" />
+        </div>
+
+        <div class="welcome-input-group">
+          <label>Which partner are you?</label>
+          <div class="identity-selector">
+            <button class="identity-btn p1" id="id-btn-1">
+              <span class="id-icon">💙</span>
+              <span class="id-label">Partner 1</span>
+            </button>
+            <button class="identity-btn p2" id="id-btn-2">
+              <span class="id-icon">❤️</span>
+              <span class="id-label">Partner 2</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="welcome-footer">
+          <button id="btn-start-journey" class="btn-start-journey" disabled>Start Our Journey ✨</button>
+          <p class="welcome-hint">You can change these later in settings.</p>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- Commentary Banner -->
   <div id="commentary-banner" class="commentary-banner hidden">
@@ -340,6 +378,10 @@
             </div>
             <span class="love-meter-end">Together 💗</span>
           </div>
+          <div class="nudge-section" style="text-align: center; margin-top: 15px;">
+            <button class="btn-nudge" id="btn-send-nudge" title="Send a little love nudge to your partner!">💌 Send Love
+              Nudge</button>
+          </div>
         </section>
 
         <!-- Couple Stats -->
@@ -397,18 +439,23 @@
     <!-- PARTNER 1 TAB -->
     <main class="tab-content" id="couple-tab-partner1">
       <div class="partner-tab-container">
+        <!-- Card 1: Manage Profile & Habits (Settings) -->
         <section class="card p1-card">
-          <div class="partner-header">
+          <div class="partner-header"
+            style="border-bottom: 1px solid var(--card-border); padding-bottom: 15px; margin-bottom: 15px;">
             <div class="partner-avatar-lg p1-avatar">💙</div>
             <div class="partner-header-info">
               <div class="partner-name-input-row">
                 <input type="text" id="p1-name-input" class="partner-name-input p1-name-input"
                   placeholder="Partner 1 name..." maxlength="20" value="Partner 1" />
               </div>
-              <div class="partner-tab-meta">Today's Progress: <span id="p1-today-pct">0%</span></div>
+              <div class="partner-tab-meta">👤 Profile Settings</div>
+              <div class="milestones-shelf" id="p1-milestones"></div>
             </div>
           </div>
-          <div class="add-habit-form" style="margin-bottom:16px">
+
+          <div class="partner-section-label">📋 Add/Manage Habits</div>
+          <div class="add-habit-form">
             <input type="text" id="p1-habit-input" placeholder="Add habit..." maxlength="50" />
             <select id="p1-habit-cat">
               <option value="health">🏃 Health</option>
@@ -419,18 +466,53 @@
             </select>
             <button class="btn-couple-primary" id="btn-add-p1-habit">Add Habit</button>
           </div>
-          <div id="p1-habits-list" class="today-habits-list">
-            <p class="empty-msg">No habits yet. Add some above!</p>
+
+          <div class="partner-section-divider"></div>
+
+          <div class="sync-settings-group">
+            <label class="daily-note-label">🌐 Cloud Sync (Multi-Device)</label>
+            <div class="sync-input-row">
+              <input type="password" id="p1-sync-key" placeholder="Enter shared Couple Key..." maxlength="50" />
+              <button class="btn-sync" id="btn-sync-p1" title="Link devices using this key">Link</button>
+            </div>
+            <p class="sync-status" id="p1-sync-status">📡 Local Mode (Private)</p>
           </div>
-          <!-- Daily reflection -->
+        </section>
+
+        <!-- Card 2: Today's Check-In (Daily Tracking) -->
+        <section class="card p1-card">
+          <div class="partner-section-label">📅 Today's Check-In</div>
+          <div class="partner-tab-meta" style="margin-bottom: 15px;">Today's Progress: <span id="p1-today-pct">0%</span>
+          </div>
+
+          <!-- Journal FIRST -->
           <div class="daily-note-section">
             <label class="daily-note-label" for="p1-day-note">📝 How was your day?</label>
             <textarea id="p1-day-note" class="daily-note-textarea p1-note"
               placeholder="Write anything... your mood, a win, a challenge, something you're grateful for 💙"
               maxlength="500" rows="3"></textarea>
             <div class="note-char-count"><span id="p1-note-count">0</span>/500</div>
+
+            <div class="gallery-input-group">
+              <label class="daily-note-label" for="p1-photo-url">📸 Memory Photo (URL)</label>
+              <input type="text" id="p1-photo-url" class="gallery-url-input" placeholder="Paste image link here..." />
+            </div>
           </div>
+
+          <div class="partner-section-divider"></div>
+
+          <!-- Habits list with lock overlay -->
+          <div class="habits-lock-container" id="p1-habits-container">
+            <div id="p1-habits-list" class="today-habits-list">
+              <p class="empty-msg">No habits yet. Add some above!</p>
+            </div>
+            <div class="habits-lock-overlay" id="p1-lock-overlay">
+              <div class="lock-msg">📝 Write your journal first to take the score</div>
+            </div>
+          </div>
+
           <button class="btn-couple-primary btn-submit-partner" id="btn-submit-p1">Submit Partner 1 Day 💙</button>
+          <button class="btn-reopen-day hidden" id="btn-reopen-p1">✏️ Re-open to Edit</button>
         </section>
       </div>
     </main>
@@ -438,18 +520,23 @@
     <!-- PARTNER 2 TAB -->
     <main class="tab-content" id="couple-tab-partner2">
       <div class="partner-tab-container">
+        <!-- Card 1: Manage Profile & Habits (Settings) -->
         <section class="card p2-card">
-          <div class="partner-header">
+          <div class="partner-header"
+            style="border-bottom: 1px solid var(--card-border); padding-bottom: 15px; margin-bottom: 15px;">
             <div class="partner-avatar-lg p2-avatar">❤️</div>
             <div class="partner-header-info">
               <div class="partner-name-input-row">
                 <input type="text" id="p2-name-input" class="partner-name-input p2-name-input"
                   placeholder="Partner 2 name..." maxlength="20" value="Partner 2" />
               </div>
-              <div class="partner-tab-meta">Today's Progress: <span id="p2-today-pct">0%</span></div>
+              <div class="partner-tab-meta">👤 Profile Settings</div>
+              <div class="milestones-shelf" id="p2-milestones"></div>
             </div>
           </div>
-          <div class="add-habit-form" style="margin-bottom:16px">
+
+          <div class="partner-section-label">📋 Add/Manage Habits</div>
+          <div class="add-habit-form">
             <input type="text" id="p2-habit-input" placeholder="Add habit..." maxlength="50" />
             <select id="p2-habit-cat">
               <option value="health">🏃 Health</option>
@@ -460,18 +547,53 @@
             </select>
             <button class="btn-couple-secondary btn-couple-add" id="btn-add-p2-habit">Add Habit</button>
           </div>
-          <div id="p2-habits-list" class="today-habits-list">
-            <p class="empty-msg">No habits yet. Add some above!</p>
+
+          <div class="partner-section-divider"></div>
+
+          <div class="sync-settings-group">
+            <label class="daily-note-label">🌐 Cloud Sync (Multi-Device)</label>
+            <div class="sync-input-row">
+              <input type="password" id="p2-sync-key" placeholder="Enter shared Couple Key..." maxlength="50" />
+              <button class="btn-sync" id="btn-sync-p2" title="Link devices using this key">Link</button>
+            </div>
+            <p class="sync-status" id="p2-sync-status">📡 Local Mode (Private)</p>
           </div>
-          <!-- Daily reflection -->
+        </section>
+
+        <!-- Card 2: Today's Check-In (Daily Tracking) -->
+        <section class="card p2-card">
+          <div class="partner-section-label">📅 Today's Check-In</div>
+          <div class="partner-tab-meta" style="margin-bottom: 15px;">Today's Progress: <span id="p2-today-pct">0%</span>
+          </div>
+
+          <!-- Journal FIRST -->
           <div class="daily-note-section">
             <label class="daily-note-label" for="p2-day-note">📝 How was your day?</label>
             <textarea id="p2-day-note" class="daily-note-textarea p2-note"
               placeholder="Write anything... your mood, a win, a challenge, something you're grateful for ❤️"
               maxlength="500" rows="3"></textarea>
             <div class="note-char-count"><span id="p2-note-count">0</span>/500</div>
+
+            <div class="gallery-input-group">
+              <label class="daily-note-label" for="p2-photo-url">📸 Memory Photo (URL)</label>
+              <input type="text" id="p2-photo-url" class="gallery-url-input" placeholder="Paste image link here..." />
+            </div>
           </div>
+
+          <div class="partner-section-divider"></div>
+
+          <!-- Habits list with lock overlay -->
+          <div class="habits-lock-container" id="p2-habits-container">
+            <div id="p2-habits-list" class="today-habits-list">
+              <p class="empty-msg">No habits yet. Add some above!</p>
+            </div>
+            <div class="habits-lock-overlay" id="p2-lock-overlay">
+              <div class="lock-msg">📝 Write your journal first to take the score</div>
+            </div>
+          </div>
+
           <button class="btn-couple-secondary btn-submit-partner" id="btn-submit-p2">Submit Partner 2 Day ❤️</button>
+          <button class="btn-reopen-day hidden" id="btn-reopen-p2">✏️ Re-open to Edit</button>
         </section>
       </div>
     </main>
@@ -479,6 +601,13 @@
     <!-- MEMORIES TAB -->
     <main class="tab-content" id="couple-tab-memories">
       <div class="history-container">
+        <div class="chart-container">
+          <div class="chart-header">
+            <h3 class="section-title couple-title" style="margin: 0;">📈 Growth Trends</h3>
+            <span class="text-xs text-dim">Closeness (Last 30 Days)</span>
+          </div>
+          <canvas id="growthChart" height="150"></canvas>
+        </div>
         <section class="card">
           <h3 class="section-title couple-title">📖 Our Journey Log</h3>
           <div id="couple-history-list" class="history-list">
